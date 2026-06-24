@@ -46,14 +46,25 @@ def process(df: pd.DataFrame) -> pd.DataFrame:
                 }
             )
 
-    return pd.DataFrame(signals)
+    return pd.DataFrame(
+        signals,
+        columns=[
+            "stock_code",
+            "signal_date",
+            "signal_type",
+            "strength",
+            "description",
+        ],
+    )
 
 
 if __name__ == "__main__":
     run_step(
         "06_detect_signals.py",
         "Detect daily IPO stock signals.",
-        PROCESSED_DIR / "04_ipo_metrics.csv",
-        PROCESSED_DIR / "06_signals.csv",
+        PROCESSED_DIR / "latest_metrics.csv",
+        PROCESSED_DIR / "signals.csv",
         process,
+        fallback_inputs=[PROCESSED_DIR / "04_ipo_metrics.csv"],
+        next_script="python scripts/04_calculate_metrics.py",
     )

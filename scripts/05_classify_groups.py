@@ -44,14 +44,30 @@ def process(df: pd.DataFrame) -> pd.DataFrame:
                 "is_manual": False,
             }
         )
-    return pd.DataFrame(rows)
+    return pd.DataFrame(
+        rows,
+        columns=[
+            "stock_code",
+            "current_group",
+            "total_score",
+            "chart_score",
+            "volume_score",
+            "financial_score",
+            "business_score",
+            "risk_score",
+            "group_reason",
+            "is_manual",
+        ],
+    )
 
 
 if __name__ == "__main__":
     run_step(
         "05_classify_groups.py",
         "Classify stocks into S/A/B/C/D groups.",
-        PROCESSED_DIR / "04_ipo_metrics.csv",
-        PROCESSED_DIR / "05_group_scores.csv",
+        PROCESSED_DIR / "latest_metrics.csv",
+        PROCESSED_DIR / "group_scores.csv",
         process,
+        fallback_inputs=[PROCESSED_DIR / "04_ipo_metrics.csv"],
+        next_script="python scripts/04_calculate_metrics.py",
     )

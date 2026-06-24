@@ -199,11 +199,20 @@ def main() -> None:
     errors_path = Path(args.errors)
 
     try:
+        if not input_path.exists():
+            message = (
+                f"입력 파일을 찾을 수 없습니다: {input_path}\n"
+                "거래소 신규상장 목록을 data/raw/listings.csv에 준비한 뒤 "
+                "python scripts/01_import_listings_csv.py 를 다시 실행해 주세요."
+            )
+            print(message)
+            record_error("01_import_listings_csv.py", message, input_path)
+            return
         df = pd.read_csv(input_path, dtype={"stock_code": str})
         result = normalize_listings(df, errors_path)
         write_csv(result, output_path)
-        print(f"Saved {len(result)} rows to {output_path}")
-        print(f"Saved listing errors to {errors_path}")
+        print(f"저장 완료: {output_path} ({len(result)}행)")
+        print(f"검증 결과: {errors_path}")
     except Exception as exc:
         record_error("01_import_listings_csv.py", str(exc), input_path)
         raise

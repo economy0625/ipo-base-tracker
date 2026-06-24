@@ -6,7 +6,15 @@ from pathlib import Path
 
 import pandas as pd
 
-from common import OUTPUT_DIR, PROCESSED_DIR, RAW_DIR, ensure_data_dirs, record_error, write_csv
+from common import (
+    OUTPUT_DIR,
+    PROCESSED_DIR,
+    RAW_DIR,
+    ensure_data_dirs,
+    record_error,
+    resolve_input_path,
+    write_csv,
+)
 
 
 PRICE_COLUMNS = [
@@ -148,6 +156,12 @@ def main() -> None:
     errors: list[dict[str, object]] = []
 
     try:
+        input_path = resolve_input_path(
+            input_path,
+            PROCESSED_DIR / "companies.csv",
+            [PROCESSED_DIR / "02_companies.csv"],
+            "python scripts/01_import_listings_csv.py",
+        )
         companies = pd.read_csv(input_path, dtype={"stock_code": str})
         required_columns = ["stock_code", "company_name", "listing_date"]
         missing = [column for column in required_columns if column not in companies.columns]
@@ -177,6 +191,9 @@ def main() -> None:
             print(f"No price fetch errors. Saved empty error file to {errors_path}")
 
         print(f"Completed {saved_count} stock price files in {output_dir}")
+    except FileNotFoundError as exc:
+        print(exc)
+        record_error("03_fetch_daily_prices.py", str(exc), input_path)
     except Exception as exc:
         record_error("03_fetch_daily_prices.py", str(exc), input_path)
         raise
