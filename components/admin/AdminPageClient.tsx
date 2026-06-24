@@ -1,13 +1,11 @@
 "use client";
 
-import { useMemo, useState, useTransition } from "react";
-import { updateAdminStock } from "@/app/admin/actions";
+import { useMemo, useState } from "react";
 import { GroupBadge } from "@/components/stocks/GroupBadge";
 import type { StockDetail, StockGroup } from "@/types/stock";
 
 type AdminPageClientProps = {
   initialStocks: StockDetail[];
-  isSupabaseConnected: boolean;
 };
 
 type EditableStock = {
@@ -42,7 +40,6 @@ function toEditableStock(stock: StockDetail): EditableStock {
 
 export function AdminPageClient({
   initialStocks,
-  isSupabaseConnected,
 }: AdminPageClientProps) {
   const [stocks, setStocks] = useState(initialStocks);
   const [selectedCode, setSelectedCode] = useState(
@@ -52,8 +49,6 @@ export function AdminPageClient({
     type: "success" | "error";
     text: string;
   } | null>(null);
-  const [isPending, startTransition] = useTransition();
-
   const selectedStock = useMemo(
     () => stocks.find((stock) => stock.company.stock_code === selectedCode) ?? null,
     [selectedCode, stocks],
@@ -119,41 +114,10 @@ export function AdminPageClient({
   function save() {
     if (!form) return;
 
-    const payload = {
-      stock_code: form.stock_code,
-      current_group: form.current_group,
-      group_reason: form.group_reason,
-      industry: form.industry,
-      theme_tags: form.theme_tags_text
-        .split(",")
-        .map((tag) => tag.trim())
-        .filter(Boolean),
-      business_summary: form.business_summary,
-      is_tech_special: form.is_tech_special,
-      is_bio: form.is_bio,
-      is_manual: form.is_manual,
-    };
-
-    if (!isSupabaseConnected) {
-      applyLocalUpdate(form);
-      setMessage({
-        type: "success",
-        text: "Supabase가 연결되어 있지 않아 mock 상태에서만 저장되었습니다.",
-      });
-      return;
-    }
-
-    startTransition(async () => {
-      const result = await updateAdminStock(payload);
-
-      setMessage({
-        type: result.ok ? "success" : "error",
-        text: result.message,
-      });
-
-      if (result.ok) {
-        applyLocalUpdate(form);
-      }
+    applyLocalUpdate(form);
+    setMessage({
+      type: "success",
+      text: "로컬 미리보기에 반영했습니다. 현재는 Supabase 저장을 지원하지 않습니다.",
     });
   }
 
@@ -208,9 +172,14 @@ export function AdminPageClient({
             <h2 className="mt-1 text-2xl font-bold text-ink">{form.company_name}</h2>
             <p className="mt-1 text-sm text-muted">{form.stock_code}</p>
           </div>
-          <div className="rounded-md border border-line bg-panel px-3 py-2 text-sm text-muted">
-            {isSupabaseConnected ? "Supabase 저장 모드" : "Mock 편집 모드"}
+          <div className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm font-semibold text-amber-800">
+            로컬 편집/미리보기
           </div>
+        </div>
+
+        <div className="mt-5 rounded-md border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+          관리자 저장 준비중입니다. 변경 내용은 현재 화면에서만 미리보기로
+          반영되며 Supabase에는 저장되지 않습니다.
         </div>
 
         {message ? (
@@ -311,10 +280,9 @@ export function AdminPageClient({
           <button
             type="button"
             onClick={save}
-            disabled={isPending}
             className="rounded-md bg-accent px-5 py-3 text-sm font-bold text-white transition hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-60"
           >
-            {isPending ? "저장 중..." : "저장"}
+            로컬 미리보기 적용
           </button>
         </div>
       </section>

@@ -82,7 +82,64 @@ create table if not exists cup_handle_patterns (
   updated_at timestamptz not null default now()
 );
 
+create table if not exists signals (
+  stock_code text not null references companies(stock_code) on delete cascade,
+  signal_date date not null,
+  signal_type text not null,
+  strength text check (strength in ('low', 'medium', 'high')),
+  current_group text check (current_group in ('S', 'A', 'B', 'C', 'D')),
+  close_price numeric,
+  volume bigint,
+  description text,
+  created_at timestamptz not null default now(),
+  primary key (stock_code, signal_date, signal_type)
+);
+
 create index if not exists idx_companies_listing_date on companies(listing_date desc);
 create index if not exists idx_companies_industry on companies(industry);
 create index if not exists idx_daily_prices_stock_date on daily_prices(stock_code, trade_date desc);
 create index if not exists idx_group_scores_group on group_scores(current_group);
+create index if not exists idx_signals_date on signals(signal_date desc);
+
+alter table companies enable row level security;
+alter table daily_prices enable row level security;
+alter table ipo_metrics enable row level security;
+alter table group_scores enable row level security;
+alter table cup_handle_patterns enable row level security;
+alter table signals enable row level security;
+
+drop policy if exists "Public read companies" on companies;
+create policy "Public read companies"
+on companies for select
+to anon, authenticated
+using (true);
+
+drop policy if exists "Public read daily prices" on daily_prices;
+create policy "Public read daily prices"
+on daily_prices for select
+to anon, authenticated
+using (true);
+
+drop policy if exists "Public read IPO metrics" on ipo_metrics;
+create policy "Public read IPO metrics"
+on ipo_metrics for select
+to anon, authenticated
+using (true);
+
+drop policy if exists "Public read group scores" on group_scores;
+create policy "Public read group scores"
+on group_scores for select
+to anon, authenticated
+using (true);
+
+drop policy if exists "Public read cup handle patterns" on cup_handle_patterns;
+create policy "Public read cup handle patterns"
+on cup_handle_patterns for select
+to anon, authenticated
+using (true);
+
+drop policy if exists "Public read signals" on signals;
+create policy "Public read signals"
+on signals for select
+to anon, authenticated
+using (true);

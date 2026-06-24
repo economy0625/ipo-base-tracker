@@ -53,7 +53,7 @@ export type DailyPrice = {
 
 export type IpoMetrics = {
   current_price: number;
-  return_vs_ipo: number;
+  return_vs_ipo: number | null;
   post_listing_high: number;
   post_listing_low: number;
   drawdown_from_high: number;
@@ -63,6 +63,7 @@ export type IpoMetrics = {
   ma60: number;
   ma120: number;
   volume_ratio_20d: number;
+  ipo_price_available?: boolean;
 };
 
 export type GroupScore = {
@@ -119,6 +120,17 @@ export type Signal = {
   description: string;
   related_group: StockGroup | null;
   is_active: boolean;
+};
+
+export type DatabaseSignal = {
+  stock_code: string;
+  signal_date: string;
+  signal_type: string;
+  strength: "low" | "medium" | "high" | null;
+  current_group: StockGroup | null;
+  close_price: number | null;
+  volume: number | null;
+  description: string | null;
 };
 
 export type StockDetail = {

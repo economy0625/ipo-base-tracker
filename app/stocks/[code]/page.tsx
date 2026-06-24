@@ -5,7 +5,7 @@ import { GroupBadge } from "@/components/stocks/GroupBadge";
 import { StockPriceChart } from "@/components/stocks/StockPriceChart";
 import { formatCurrency, formatDate, formatPercent } from "@/lib/format";
 import { groupDefinitions } from "@/lib/groups";
-import { getStockByCode } from "@/lib/supabase";
+import { getStockByCode, normalizeStockCode } from "@/lib/supabase";
 import type { StockGroup } from "@/types/stock";
 
 type StockDetailPageProps = {
@@ -34,7 +34,8 @@ function percentOrDash(value: number | null | undefined) {
 
 export default async function StockDetailPage({ params }: StockDetailPageProps) {
   const { code } = await params;
-  const stockResult = await getStockByCode(code);
+  const normalizedCode = normalizeStockCode(code);
+  const stockResult = await getStockByCode(normalizedCode);
 
   if (!stockResult) {
     notFound();
@@ -45,13 +46,10 @@ export default async function StockDetailPage({ params }: StockDetailPageProps) 
   const groupScore = stock.group_score;
   const pattern = stock.cup_handle_pattern;
 
-  if (!metrics || !groupScore || !pattern) {
-    notFound();
-  }
-
   const company = stock.company;
-  const group = groupScore.current_group;
+  const group = groupScore?.current_group ?? "C";
   const groupDefinition = groupDefinitions[group];
+  const ipoPriceAvailable = company.adjusted_ipo_price > 0;
 
   return (
     <div className="mx-auto max-w-7xl space-y-6">
@@ -82,23 +80,53 @@ export default async function StockDetailPage({ params }: StockDetailPageProps) 
 
         <div className="mt-5 grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
           <SummaryItem label="상장일" value={formatDate(company.listing_date)} />
-          <SummaryItem label="현재가" value={`${formatCurrency(metrics.current_price)}원`} />
-          <SummaryItem label="조정공모가" value={`${formatCurrency(company.adjusted_ipo_price)}원`} />
-          <SummaryItem label="공모가 대비 수익률" value={formatPercent(metrics.return_vs_ipo)} tone="up" />
-          <SummaryItem label="전고점 대비 하락률" value={formatPercent(metrics.drawdown_from_high)} tone="down" />
-          <SummaryItem label="저점 대비 반등률" value={formatPercent(metrics.rebound_from_low)} tone="up" />
-          <SummaryItem label="상장 후 경과일" value={`${metrics.days_since_listing}일`} />
-          <SummaryItem label="MA20" value={`${formatCurrency(metrics.ma20)}원`} />
-          <SummaryItem label="MA60" value={`${formatCurrency(metrics.ma60)}원`} />
-          <SummaryItem label="거래량 배수" value={`${metrics.volume_ratio_20d.toFixed(1)}배`} />
+          <SummaryItem label="현재가" value={numberOrDash(metrics?.current_price, "원")} />
+          <SummaryItem
+            label="조정공모가"
+            value={
+              ipoPriceAvailable
+                ? `${formatCurrency(company.adjusted_ipo_price)}원`
+                : "-"
+            }
+          />
+          <SummaryItem
+            label="공모가 대비 수익률"
+            value={
+              ipoPriceAvailable ? percentOrDash(metrics?.return_vs_ipo) : "-"
+            }
+            tone="up"
+          />
+          <SummaryItem label="전고점 대비 하락률" value={percentOrDash(metrics?.drawdown_from_high)} tone="down" />
+          <SummaryItem label="저점 대비 반등률" value={percentOrDash(metrics?.rebound_from_low)} tone="up" />
+          <SummaryItem label="상장 후 경과일" value={metrics ? `${metrics.days_since_listing}일` : "-"} />
+          <SummaryItem label="MA20" value={numberOrDash(metrics?.ma20, "원")} />
+          <SummaryItem label="MA60" value={numberOrDash(metrics?.ma60, "원")} />
+          <SummaryItem label="거래량 배수" value={metrics ? `${metrics.volume_ratio_20d.toFixed(1)}배` : "-"} />
         </div>
       </section>
 
-      <StockPriceChart
-        prices={dailyPrices}
-        adjustedIpoPrice={company.adjusted_ipo_price}
-        metrics={metrics}
-      />
+      {!metrics ? (
+        <DataNotice message="지표 데이터가 아직 없습니다." />
+      ) : null}
+
+      {!groupScore ? (
+        <DataNotice message="그룹 분류 데이터가 아직 없습니다." />
+      ) : null}
+
+      {metrics && dailyPrices.length > 0 ? (
+        <StockPriceChart
+          prices={dailyPrices}
+          adjustedIpoPrice={company.adjusted_ipo_price}
+          metrics={metrics}
+        />
+      ) : (
+        <section className="rounded-md border border-line bg-white p-8 text-center shadow-soft">
+          <h2 className="text-lg font-bold text-ink">가격 차트</h2>
+          <p className="mt-2 text-sm text-muted">
+            Supabase 일별 가격 데이터가 없습니다.
+          </p>
+        </section>
+      )}
 
       <div className="grid gap-6 lg:grid-cols-[1fr_1fr]">
         <section className="rounded-md border border-line bg-white p-5 shadow-soft">
@@ -111,7 +139,9 @@ export default async function StockDetailPage({ params }: StockDetailPageProps) 
           <p className="mt-4 text-sm font-semibold text-ink">전략</p>
           <p className="mt-2 leading-7 text-muted">{groupDefinition.strategy}</p>
           <p className="mt-4 text-sm font-semibold text-ink">판정 사유</p>
-          <p className="mt-2 leading-7 text-muted">{groupScore.group_reason}</p>
+          <p className="mt-2 leading-7 text-muted">
+            {groupScore?.group_reason ?? "그룹 판정 데이터가 없습니다."}
+          </p>
           <div className="mt-4 flex flex-wrap gap-2">
             {groupDefinition.conditions.map((condition) => (
               <span key={condition} className="rounded-md bg-panel px-3 py-2 text-sm text-muted">
@@ -123,19 +153,29 @@ export default async function StockDetailPage({ params }: StockDetailPageProps) 
 
         <section className="rounded-md border border-line bg-white p-5 shadow-soft">
           <h2 className="text-lg font-bold text-ink">컵앤핸들 분석</h2>
-          <div className="mt-4 grid grid-cols-2 gap-4 text-sm">
-            <InfoItem label="좌측 고점" value={numberOrDash(pattern.cup_left_peak_price, "원")} />
-            <InfoItem label="컵 저점" value={numberOrDash(pattern.cup_low_price, "원")} />
-            <InfoItem label="컵 깊이" value={percentOrDash(pattern.cup_depth_percent)} />
-            <InfoItem label="베이스 기간" value={`${pattern.base_days}일`} />
-            <InfoItem label="손잡이 깊이" value={percentOrDash(pattern.handle_depth_percent)} />
-            <InfoItem label="피벗 가격" value={numberOrDash(pattern.pivot_price, "원")} />
-            <InfoItem label="돌파일" value={pattern.breakout_date ? formatDate(pattern.breakout_date) : "-"} />
-            <InfoItem
-              label="돌파 거래량"
-              value={pattern.breakout_volume_ratio ? `${pattern.breakout_volume_ratio.toFixed(1)}배` : "-"}
-            />
-          </div>
+          {pattern ? (
+            <div className="mt-4 grid grid-cols-2 gap-4 text-sm">
+              <InfoItem label="좌측 고점" value={numberOrDash(pattern.cup_left_peak_price, "원")} />
+              <InfoItem label="컵 저점" value={numberOrDash(pattern.cup_low_price, "원")} />
+              <InfoItem label="컵 깊이" value={percentOrDash(pattern.cup_depth_percent)} />
+              <InfoItem label="베이스 기간" value={`${pattern.base_days}일`} />
+              <InfoItem label="손잡이 깊이" value={percentOrDash(pattern.handle_depth_percent)} />
+              <InfoItem label="피벗 가격" value={numberOrDash(pattern.pivot_price, "원")} />
+              <InfoItem label="돌파일" value={pattern.breakout_date ? formatDate(pattern.breakout_date) : "-"} />
+              <InfoItem
+                label="돌파 거래량"
+                value={
+                  pattern.breakout_volume_ratio
+                    ? `${pattern.breakout_volume_ratio.toFixed(1)}배`
+                    : "-"
+                }
+              />
+            </div>
+          ) : (
+            <p className="mt-4 rounded-md border border-line bg-panel p-4 text-sm text-muted">
+              컵앤핸들 패턴 데이터가 아직 없습니다.
+            </p>
+          )}
         </section>
       </div>
 
@@ -190,6 +230,11 @@ export default async function StockDetailPage({ params }: StockDetailPageProps) 
               </tbody>
             </table>
           </div>
+          {stock.financials.length === 0 ? (
+            <p className="mt-4 text-center text-sm text-muted">
+              재무 데이터가 없습니다.
+            </p>
+          ) : null}
         </section>
       </div>
 
@@ -197,8 +242,8 @@ export default async function StockDetailPage({ params }: StockDetailPageProps) 
         <h2 className="text-lg font-bold text-ink">투자전략</h2>
         <p className="mt-3 text-2xl font-bold text-accent">{investmentStrategies[group]}</p>
         <p className="mt-3 leading-7 text-muted">
-          현재 {groupDefinition.label}은 {groupDefinition.statusLabel} 단계입니다. 이 화면의 전략은
-          UI 개발용 mock data를 기반으로 표시되며 실제 투자 판단에는 사용할 수 없습니다.
+          현재 {groupDefinition.label}은 {groupDefinition.statusLabel} 단계입니다.
+          표시된 데이터는 투자 판단이 아닌 모니터링 참고용입니다.
         </p>
       </section>
     </div>
@@ -234,5 +279,13 @@ function InfoItem({ label, value }: { label: string; value: string }) {
       <p className="text-xs text-muted">{label}</p>
       <p className="mt-1 font-semibold text-ink">{value}</p>
     </div>
+  );
+}
+
+function DataNotice({ message }: { message: string }) {
+  return (
+    <section className="rounded-md border border-amber-200 bg-amber-50 px-5 py-4 text-sm font-semibold text-amber-800">
+      {message}
+    </section>
   );
 }

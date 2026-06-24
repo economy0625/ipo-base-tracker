@@ -3,7 +3,7 @@ import { PageHeader } from "@/components/layout/page-header";
 import { GroupBadge } from "@/components/stocks/GroupBadge";
 import { formatCurrency, formatDate, formatPercent } from "@/lib/format";
 import { groupDefinitions } from "@/lib/groups";
-import { getStocksByGroup } from "@/lib/supabase";
+import { getStocksByGroupResult } from "@/lib/supabase";
 import type { StockDetail, StockGroup } from "@/types/stock";
 
 type GroupPageProps = {
@@ -19,11 +19,28 @@ function average(values: number[]) {
   return values.reduce((sum, value) => sum + value, 0) / values.length;
 }
 
+function hasIpoReturn(stock: StockDetail) {
+  return (
+    stock.company.adjusted_ipo_price > 0 &&
+    stock.metrics?.return_vs_ipo !== null &&
+    stock.metrics?.return_vs_ipo !== undefined
+  );
+}
+
+function returnVsIpoOrDash(stock: StockDetail) {
+  return hasIpoReturn(stock)
+    ? formatPercent(stock.metrics!.return_vs_ipo!)
+    : "-";
+}
+
 export async function GroupPage({ group }: GroupPageProps) {
   const definition = groupDefinitions[group];
-  const stocks = await getStocksByGroup(group);
+  const result = await getStocksByGroupResult(group);
+  const stocks = result.data;
   const averageReturn = average(
-    stocks.map((stock) => stock.metrics?.return_vs_ipo ?? 0),
+    stocks
+      .filter(hasIpoReturn)
+      .map((stock) => stock.metrics!.return_vs_ipo!),
   );
   const averageDrawdown = average(
     stocks.map((stock) => stock.metrics?.drawdown_from_high ?? 0),
@@ -43,6 +60,12 @@ export async function GroupPage({ group }: GroupPageProps) {
         title={definition.label}
         description={definition.definition}
       />
+      {result.status === "partial" ? (
+        <div className="rounded-md border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+          <p className="font-semibold">Supabase 부분 연결</p>
+          <p className="mt-1">{result.warnings.join(" ")}</p>
+        </div>
+      ) : null}
 
       <section className="grid gap-4 lg:grid-cols-[1fr_1.1fr]">
         <div className="rounded-md border border-line bg-white p-5 shadow-soft">
@@ -74,10 +97,16 @@ export async function GroupPage({ group }: GroupPageProps) {
       </section>
 
       <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-        <MetricCard label="해당 종목" value={`${stocks.length}개`} helper="mock data 기준" />
+        <MetricCard
+          label="해당 종목"
+          value={`${stocks.length}개`}
+          helper={`${result.source === "supabase" ? "Supabase" : "mock"} data 기준`}
+        />
         <MetricCard
           label="평균 공모가 대비"
-          value={formatPercent(averageReturn)}
+          value={
+            stocks.some(hasIpoReturn) ? formatPercent(averageReturn) : "-"
+          }
           helper="그룹 내 단순 평균"
         />
         <MetricCard
@@ -177,15 +206,17 @@ function StockTableRow({ stock }: { stock: StockDetail }) {
       </td>
       <td className="px-4 py-4 text-muted">{stock.company.industry}</td>
       <td className="px-4 py-4 font-semibold">
-        {formatCurrency(metrics?.current_price ?? 0)}원
+        {metrics ? `${formatCurrency(metrics.current_price)}원` : "-"}
       </td>
       <td className="px-4 py-4 font-semibold text-accent">
-        {formatPercent(metrics?.return_vs_ipo ?? 0)}
+        {returnVsIpoOrDash(stock)}
       </td>
       <td className="px-4 py-4 font-semibold text-red-600">
-        {formatPercent(metrics?.drawdown_from_high ?? 0)}
+        {metrics ? formatPercent(metrics.drawdown_from_high) : "-"}
       </td>
-      <td className="px-4 py-4">{metrics?.volume_ratio_20d.toFixed(1)}배</td>
+      <td className="px-4 py-4">
+        {metrics ? `${metrics.volume_ratio_20d.toFixed(1)}배` : "-"}
+      </td>
       <td className="max-w-sm px-4 py-4 text-muted">
         {stock.group_score?.group_reason}
       </td>
@@ -221,19 +252,19 @@ function StockMobileCard({ stock }: { stock: StockDetail }) {
         <div>
           <p className="text-muted">현재가</p>
           <p className="mt-1 font-semibold text-ink">
-            {formatCurrency(metrics?.current_price ?? 0)}원
+            {metrics ? `${formatCurrency(metrics.current_price)}원` : "-"}
           </p>
         </div>
         <div>
           <p className="text-muted">공모가 대비</p>
           <p className="mt-1 font-semibold text-accent">
-            {formatPercent(metrics?.return_vs_ipo ?? 0)}
+            {returnVsIpoOrDash(stock)}
           </p>
         </div>
         <div>
           <p className="text-muted">거래량</p>
           <p className="mt-1 font-semibold text-ink">
-            {metrics?.volume_ratio_20d.toFixed(1)}배
+            {metrics ? `${metrics.volume_ratio_20d.toFixed(1)}배` : "-"}
           </p>
         </div>
       </div>

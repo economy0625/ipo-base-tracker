@@ -9,6 +9,7 @@ type GroupFilter = "ALL" | StockGroup;
 
 type SortKey =
   | "listing_date"
+  | "total_score"
   | "return_vs_ipo"
   | "drawdown_from_high"
   | "volume_ratio_20d";
@@ -28,6 +29,7 @@ const groupFilters: { label: string; value: GroupFilter }[] = [
 
 const sortOptions: { label: string; value: SortKey }[] = [
   { label: "상장일", value: "listing_date" },
+  { label: "그룹 총점", value: "total_score" },
   { label: "공모가 대비 수익률", value: "return_vs_ipo" },
   { label: "전고점 대비 하락률", value: "drawdown_from_high" },
   { label: "거래량 배수", value: "volume_ratio_20d" },
@@ -41,6 +43,29 @@ function getListingYears(stocks: StockDetail[]) {
   return Array.from(
     new Set(stocks.map((stock) => stock.company.listing_date.slice(0, 4))),
   ).sort((a, b) => Number(b) - Number(a));
+}
+
+function currencyOrDash(value: number | null | undefined) {
+  return value === null || value === undefined
+    ? "-"
+    : `${formatCurrency(value)}원`;
+}
+
+function percentOrDash(value: number | null | undefined) {
+  return value === null || value === undefined ? "-" : formatPercent(value);
+}
+
+function hasIpoPrice(stock: StockDetail) {
+  return stock.company.adjusted_ipo_price > 0;
+}
+
+function returnVsIpoOrDash(stock: StockDetail) {
+  if (!hasIpoPrice(stock)) return "-";
+  return percentOrDash(stock.metrics?.return_vs_ipo);
+}
+
+function volumeRatioOrDash(value: number | null | undefined) {
+  return value === null || value === undefined ? "-" : `${value.toFixed(1)}배`;
 }
 
 export function StocksPageClient({ stocks }: StocksPageClientProps) {
@@ -73,11 +98,33 @@ export function StocksPageClient({ stocks }: StocksPageClientProps) {
         if (listingYear !== "ALL" && !stock.company.listing_date.startsWith(listingYear)) return false;
         if (industryQuery.trim() && !industryMatch) return false;
         if (themeQuery.trim() && !themeMatch) return false;
-        if (belowIpoOnly && (metrics?.current_price ?? 0) > stock.company.adjusted_ipo_price) return false;
-        if (deepDrawdownOnly && (metrics?.drawdown_from_high ?? 0) > -50) return false;
-        if (volumeSpikeOnly && (metrics?.volume_ratio_20d ?? 0) < 1.5) return false;
-        if (ma60RecoveredOnly && (metrics?.current_price ?? 0) < (metrics?.ma60 ?? 0)) return false;
-        if (ma120RecoveredOnly && (metrics?.current_price ?? 0) < (metrics?.ma120 ?? 0)) return false;
+        if (
+          belowIpoOnly &&
+          (!metrics ||
+            !hasIpoPrice(stock) ||
+            metrics.current_price > stock.company.adjusted_ipo_price)
+        )
+          return false;
+        if (
+          deepDrawdownOnly &&
+          (!metrics || metrics.drawdown_from_high > -50)
+        )
+          return false;
+        if (
+          volumeSpikeOnly &&
+          (!metrics || metrics.volume_ratio_20d < 1.5)
+        )
+          return false;
+        if (
+          ma60RecoveredOnly &&
+          (!metrics || metrics.current_price < metrics.ma60)
+        )
+          return false;
+        if (
+          ma120RecoveredOnly &&
+          (!metrics || metrics.current_price < metrics.ma120)
+        )
+          return false;
 
         return true;
       })
@@ -89,7 +136,17 @@ export function StocksPageClient({ stocks }: StocksPageClientProps) {
           );
         }
 
-        return (b.metrics?.[sortKey] ?? 0) - (a.metrics?.[sortKey] ?? 0);
+        if (sortKey === "total_score") {
+          return (
+            (b.group_score?.total_score ?? -Infinity) -
+            (a.group_score?.total_score ?? -Infinity)
+          );
+        }
+
+        return (
+          (b.metrics?.[sortKey] ?? -Infinity) -
+          (a.metrics?.[sortKey] ?? -Infinity)
+        );
       });
   }, [
     belowIpoOnly,
@@ -238,12 +295,16 @@ export function StocksPageClient({ stocks }: StocksPageClientProps) {
                     <td className="px-4 py-4 text-muted">{stock.company.stock_code}</td>
                     <td className="px-4 py-4 text-muted">{formatDate(stock.company.listing_date)}</td>
                     <td className="px-4 py-4 text-muted">{stock.company.industry}</td>
-                    <td className="px-4 py-4">{formatCurrency(stock.company.adjusted_ipo_price)}원</td>
-                    <td className="px-4 py-4 font-semibold">{formatCurrency(metrics?.current_price ?? 0)}원</td>
-                    <td className="px-4 py-4 font-semibold text-accent">{formatPercent(metrics?.return_vs_ipo ?? 0)}</td>
-                    <td className="px-4 py-4 font-semibold text-red-600">{formatPercent(metrics?.drawdown_from_high ?? 0)}</td>
-                    <td className="px-4 py-4 font-semibold text-accent">{formatPercent(metrics?.rebound_from_low ?? 0)}</td>
-                    <td className="px-4 py-4">{metrics?.volume_ratio_20d.toFixed(1)}배</td>
+                    <td className="px-4 py-4">
+                      {hasIpoPrice(stock)
+                        ? `${formatCurrency(stock.company.adjusted_ipo_price)}원`
+                        : "-"}
+                    </td>
+                    <td className="px-4 py-4 font-semibold">{currencyOrDash(metrics?.current_price)}</td>
+                    <td className="px-4 py-4 font-semibold text-accent">{returnVsIpoOrDash(stock)}</td>
+                    <td className="px-4 py-4 font-semibold text-red-600">{percentOrDash(metrics?.drawdown_from_high)}</td>
+                    <td className="px-4 py-4 font-semibold text-accent">{percentOrDash(metrics?.rebound_from_low)}</td>
+                    <td className="px-4 py-4">{volumeRatioOrDash(metrics?.volume_ratio_20d)}</td>
                     <td className="px-4 py-4">
                       <div className="flex max-w-xs flex-wrap gap-1">
                         {stock.company.theme_tags.map((tag) => (
@@ -290,15 +351,15 @@ export function StocksPageClient({ stocks }: StocksPageClientProps) {
                 </div>
                 <div>
                   <p className="text-muted">현재가</p>
-                  <p className="mt-1 font-semibold text-ink">{formatCurrency(metrics?.current_price ?? 0)}원</p>
+                  <p className="mt-1 font-semibold text-ink">{currencyOrDash(metrics?.current_price)}</p>
                 </div>
                 <div>
                   <p className="text-muted">공모가 대비</p>
-                  <p className="mt-1 font-semibold text-accent">{formatPercent(metrics?.return_vs_ipo ?? 0)}</p>
+                  <p className="mt-1 font-semibold text-accent">{returnVsIpoOrDash(stock)}</p>
                 </div>
                 <div>
                   <p className="text-muted">거래량 배수</p>
-                  <p className="mt-1 font-semibold text-ink">{metrics?.volume_ratio_20d.toFixed(1)}배</p>
+                  <p className="mt-1 font-semibold text-ink">{volumeRatioOrDash(metrics?.volume_ratio_20d)}</p>
                 </div>
               </div>
               <div className="mt-4 flex flex-wrap gap-1">

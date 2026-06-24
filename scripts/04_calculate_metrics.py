@@ -56,9 +56,23 @@ def parse_args() -> argparse.Namespace:
 def normalize_price_columns(df: pd.DataFrame) -> pd.DataFrame:
     aliases = {
         "open": "open_price",
+        "Open": "open_price",
+        "시가": "open_price",
         "high": "high_price",
+        "High": "high_price",
+        "고가": "high_price",
         "low": "low_price",
+        "Low": "low_price",
+        "저가": "low_price",
         "close": "close_price",
+        "Close": "close_price",
+        "종가": "close_price",
+        "date": "trade_date",
+        "Date": "trade_date",
+        "날짜": "trade_date",
+        "volume": "volume",
+        "Volume": "volume",
+        "거래량": "volume",
     }
     prices = df.rename(columns=aliases).copy()
     missing = [column for column in PRICE_COLUMNS if column not in prices.columns]
@@ -99,7 +113,12 @@ def load_prices(requested_path: Path) -> pd.DataFrame:
 
 def calculate_indicators(prices: pd.DataFrame) -> pd.DataFrame:
     result = prices.copy()
-    result["stock_code"] = result["stock_code"].astype(str).str.zfill(6)
+    result["stock_code"] = (
+        result["stock_code"]
+        .astype(str)
+        .str.replace(r"\.0$", "", regex=True)
+        .str.zfill(6)
+    )
     result["trade_date"] = pd.to_datetime(result["trade_date"], errors="coerce")
     numeric_columns = [
         "open_price",
@@ -122,44 +141,70 @@ def calculate_indicators(prices: pd.DataFrame) -> pd.DataFrame:
     result["volume_ma20"] = grouped["volume"].transform(
         lambda values: values.rolling(20, min_periods=1).mean()
     )
-    result["volume_ratio_20d"] = (
-        result["volume"] / result["volume_ma20"].replace(0, pd.NA)
-    ).fillna(0)
+    volume_ma20 = result["volume_ma20"].mask(result["volume_ma20"].eq(0))
+    result["volume_ratio_20d"] = result["volume"].div(volume_ma20).fillna(0)
     result["post_listing_high"] = grouped["high_price"].cummax()
     result["post_listing_low"] = grouped["low_price"].cummin()
     result["trade_date"] = result["trade_date"].dt.date.astype(str)
     return result.reset_index(drop=True)
 
 
-def calculate_latest_metrics(
-    indicators: pd.DataFrame, companies: pd.DataFrame
-) -> pd.DataFrame:
+def prepare_companies(companies: pd.DataFrame) -> pd.DataFrame:
     company_rows = companies.copy()
     company_rows["stock_code"] = (
-        company_rows["stock_code"].astype(str).str.zfill(6)
+        company_rows["stock_code"]
+        .astype(str)
+        .str.replace(r"\.0$", "", regex=True)
+        .str.zfill(6)
     )
     company_rows["listing_date"] = pd.to_datetime(
         company_rows["listing_date"], errors="coerce"
     )
-    company_rows["adjusted_ipo_price"] = pd.to_numeric(
-        company_rows.get("adjusted_ipo_price", company_rows["ipo_price"]),
+    company_rows["ipo_price"] = pd.to_numeric(
+        company_rows["ipo_price"],
         errors="coerce",
     )
+    if "adjusted_ipo_price" not in company_rows.columns:
+        company_rows["adjusted_ipo_price"] = company_rows["ipo_price"]
+    company_rows["adjusted_ipo_price"] = pd.to_numeric(
+        company_rows["adjusted_ipo_price"],
+        errors="coerce",
+    )
+    return company_rows[
+        ["stock_code", "listing_date", "ipo_price", "adjusted_ipo_price"]
+    ]
 
+
+def attach_ipo_metrics(
+    indicators: pd.DataFrame, companies: pd.DataFrame
+) -> pd.DataFrame:
+    result = indicators.merge(
+        prepare_companies(companies),
+        on="stock_code",
+        how="left",
+    )
+    adjusted_ipo_price = result["adjusted_ipo_price"]
+    close_price = result["close_price"]
+    ipo_price_available = adjusted_ipo_price.notna() & adjusted_ipo_price.gt(0)
+    return_from_ipo = pd.Series(pd.NA, index=result.index, dtype="Float64")
+    return_from_ipo.loc[ipo_price_available] = (
+        close_price.loc[ipo_price_available]
+        / adjusted_ipo_price.loc[ipo_price_available]
+    ) - 1
+
+    result["ipo_price_available"] = ipo_price_available
+    result["return_from_ipo"] = return_from_ipo
+    result["return_vs_ipo"] = return_from_ipo * 100
+    return result
+
+
+def calculate_latest_metrics(indicators: pd.DataFrame) -> pd.DataFrame:
     latest = (
         indicators.sort_values("trade_date")
         .groupby("stock_code", as_index=False)
         .tail(1)
-        .merge(
-            company_rows[
-                ["stock_code", "listing_date", "adjusted_ipo_price"]
-            ],
-            on="stock_code",
-            how="left",
-        )
     )
     current = latest["close_price"]
-    ipo = latest["adjusted_ipo_price"]
     high = latest["post_listing_high"]
     low = latest["post_listing_low"]
     trade_dates = pd.to_datetime(latest["trade_date"])
@@ -167,12 +212,18 @@ def calculate_latest_metrics(
     return pd.DataFrame(
         {
             "stock_code": latest["stock_code"],
+            "trade_date": latest["trade_date"],
+            "close_price": current,
+            "ipo_price": latest["ipo_price"],
+            "adjusted_ipo_price": latest["adjusted_ipo_price"],
+            "ipo_price_available": latest["ipo_price_available"],
+            "return_from_ipo": latest["return_from_ipo"],
             "current_price": current,
-            "return_vs_ipo": ((current - ipo) / ipo) * 100,
+            "return_vs_ipo": latest["return_vs_ipo"],
             "post_listing_high": high,
             "post_listing_low": low,
-            "drawdown_from_high": ((current - high) / high) * 100,
-            "rebound_from_low": ((current - low) / low) * 100,
+            "drawdown_from_high": ((current - high) / high.replace(0, pd.NA)) * 100,
+            "rebound_from_low": ((current - low) / low.replace(0, pd.NA)) * 100,
             "days_since_listing": (
                 trade_dates - latest["listing_date"]
             ).dt.days,
@@ -200,8 +251,8 @@ def main() -> None:
         companies = pd.read_csv(
             companies_path, dtype={"stock_code": str}
         )
-        indicators = calculate_indicators(prices)
-        metrics = calculate_latest_metrics(indicators, companies)
+        indicators = attach_ipo_metrics(calculate_indicators(prices), companies)
+        metrics = calculate_latest_metrics(indicators)
         write_csv(indicators, args.output)
         write_csv(metrics, args.metrics_output)
         print(f"저장 완료: {args.output} ({len(indicators)}행)")

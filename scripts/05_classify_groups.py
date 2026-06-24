@@ -7,7 +7,7 @@ from common import PROCESSED_DIR, run_step
 
 def classify(row: pd.Series) -> tuple[str, str]:
     current_price = float(row["current_price"])
-    return_vs_ipo = float(row["return_vs_ipo"])
+    return_vs_ipo = pd.to_numeric(row.get("return_vs_ipo"), errors="coerce")
     drawdown = float(row["drawdown_from_high"])
     volume_ratio = float(row["volume_ratio_20d"])
     ma20 = float(row["ma20"])
@@ -17,7 +17,7 @@ def classify(row: pd.Series) -> tuple[str, str]:
         return "S", "전고점 근접 또는 돌파와 거래량 증가가 확인됨"
     if drawdown >= -25 and current_price >= ma20 and volume_ratio >= 1.1:
         return "A", "컵 우측 상승 또는 돌파 임박 조건을 충족"
-    if current_price >= ma60 or return_vs_ipo > 0:
+    if current_price >= ma60 or (pd.notna(return_vs_ipo) and return_vs_ipo > 0):
         return "B", "장기 조정 후 베이스 형성 가능성이 있음"
     if drawdown > -60:
         return "C", "모멘텀 확인 전 관찰이 필요함"

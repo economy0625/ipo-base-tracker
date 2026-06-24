@@ -30,3 +30,12 @@ Thumbs.db
 data/raw
 data/processed
 data/output
+
+.env.local
+.env.*.local
+.venv/
+node_modules/
+data/raw/prices/
+data/processed/
+data/output/
+.next/

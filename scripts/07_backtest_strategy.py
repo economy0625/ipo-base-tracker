@@ -55,6 +55,10 @@ def build_trade_log(signals: pd.DataFrame, prices: pd.DataFrame) -> pd.DataFrame
     rows: list[dict[str, object]] = []
 
     for _, signal in signals.iterrows():
+        if signal.get("signal_type") == "공모가 회복":
+            ipo_available = str(signal.get("ipo_price_available", "true")).lower()
+            if ipo_available in {"false", "0", "no"}:
+                continue
         stock_code = str(signal["stock_code"]).zfill(6)
         signal_date = pd.to_datetime(signal["signal_date"])
         future = prices[

@@ -1,6 +1,6 @@
 import { AdminPageClient } from "@/components/admin/AdminPageClient";
 import { PageHeader } from "@/components/layout/page-header";
-import { getStockDetails, isSupabaseConfigured } from "@/lib/supabase";
+import { getStockDetails } from "@/lib/supabase";
 
 export default async function AdminPage() {
   const stocks = await getStockDetails();
@@ -12,10 +12,7 @@ export default async function AdminPage() {
         title="관리자"
         description="종목의 그룹, 판정 사유, 산업, 테마, 사업성 요약과 분류 플래그를 수정합니다."
       />
-      <AdminPageClient
-        initialStocks={stocks}
-        isSupabaseConnected={isSupabaseConfigured}
-      />
+      <AdminPageClient initialStocks={stocks} />
     </div>
   );
 }
